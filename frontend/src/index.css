@@ -1,0 +1,168 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Dark Theme (Default) ─────────────────────────────────── */
+  --bg-primary: #030712;
+  --bg-secondary: #0f172a;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  
+  --card-bg: rgba(30, 41, 59, 0.45);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --card-shadow: rgba(0, 0, 0, 0.4);
+  
+  --accent-primary: #6366f1;
+  --accent-secondary: #8b5cf6;
+  --accent-glow: rgba(99, 102, 241, 0.15);
+  
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --input-border: rgba(255, 255, 255, 0.1);
+  
+  --sidebar-bg: #030712;
+  --nav-active-bg: rgba(99, 102, 241, 0.15);
+  --nav-text: #94a3b8;
+  --nav-active-text: #f8fafc;
+}
+
+.light {
+  /* ── Light Theme ─────────────────────────────────────────── */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-border: rgba(15, 23, 42, 0.08);
+  --card-shadow: rgba(0, 0, 0, 0.05);
+  
+  --accent-primary: #4f46e5;
+  --accent-secondary: #7c3aed;
+  --accent-glow: rgba(79, 70, 229, 0.1);
+  
+  --input-bg: #ffffff;
+  --input-border: #e2e8f0;
+  
+  --sidebar-bg: #ffffff;
+  --nav-active-bg: rgba(79, 70, 229, 0.08);
+  --nav-text: #64748b;
+  --nav-active-text: #0f172a;
+  
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+body {
+  margin: 0;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow-x: hidden;
+}
+
+/* ── Global animated background ───────────────────────────── */
+.app-bg {
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  background-image: 
+    radial-gradient(at 0% 0%, var(--accent-glow) 0, transparent 40%), 
+    radial-gradient(at 100% 100%, var(--accent-glow) 0, transparent 40%);
+  background-attachment: fixed;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-primary); }
+
+@layer components {
+  /* ── Glassmorphism card ────────────────────────────────────── */
+  .glass {
+    background: var(--card-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 10px 30px -10px var(--card-shadow);
+  }
+
+  .glass-hover {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .glass-hover:hover {
+    border-color: var(--accent-primary);
+    box-shadow: 0 20px 40px -15px var(--card-shadow), 0 0 20px -10px var(--accent-glow);
+    transform: translateY(-4px);
+  }
+
+  /* ── Gradient text ────────────────────────────────────────── */
+  .gradient-text {
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Neon button ──────────────────────────────────────────── */
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 10px 15px -3px var(--accent-glow);
+    transition: all 0.2s ease;
+  }
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 20px 25px -5px var(--accent-glow);
+    transform: translateY(-1px) scale(1.02);
+  }
+
+  /* ── Sidebar nav item ─────────────────────────────────────── */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--nav-text);
+    transition: all 0.2s ease;
+    text-decoration: none;
+  }
+  .nav-item:hover {
+    color: var(--accent-primary);
+    background: var(--nav-active-bg);
+  }
+  .nav-item.active {
+    color: var(--nav-active-text);
+    background: var(--nav-active-bg);
+    border-left: 3px solid var(--accent-primary);
+  }
+
+  /* ── Input fields ─────────────────────────────────────────── */
+  .input-glass {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+  }
+  .input-glass:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+}

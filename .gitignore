@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Environment
+.env
+*.env.local
+
+# Data (don't commit resumes or DB)
+data/
+*.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+playwright/.auth/
+
+# Claude Code local settings
+.claude/
+
+# Logs
+*.txt

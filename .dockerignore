@@ -1,0 +1,12 @@
+node_modules
+frontend/node_modules
+backend/__pycache__
+venv
+.env
+.git
+data/*.db
+data/resumes/*
+Dockerfile
+docker-compose.yml
+README.md
+render.yaml

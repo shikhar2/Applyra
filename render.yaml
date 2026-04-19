@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: applyra
+    env: docker
+    plan: free
+    region: oregon
+    dockerContext: .
+    dockerFilePath: Dockerfile
+    envVars:
+      - key: APP_NAME
+        value: Applyra
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_MODEL
+        value: gemini-1.5-flash
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./data/applyra.db
+      - key: DRY_RUN
+        value: "true"
+      - key: AUTO_APPLY_ENABLED
+        value: "false"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
