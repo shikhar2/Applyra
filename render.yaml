@@ -1,3 +1,9 @@
+databases:
+  - name: applyra-db
+    plan: free
+    databaseName: applyra
+    user: applyra
+
 services:
   - type: web
     name: applyra
@@ -14,11 +20,15 @@ services:
       - key: AI_MODEL
         value: gemini-1.5-flash
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:///./data/applyra.db
+        fromDatabase:
+          name: applyra-db
+          property: connectionString
       - key: DRY_RUN
         value: "true"
       - key: AUTO_APPLY_ENABLED
         value: "false"
+      - key: SECRET_KEY
+        generateValue: true
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GEMINI_API_KEY

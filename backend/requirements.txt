@@ -1,0 +1,50 @@
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+aiosqlite==0.20.0
+asyncpg==0.30.0
+
+# AI / LLM
+anthropic==0.40.0
+openai==1.57.0
+google-generativeai==0.8.3
+
+# Resume Parsing
+pdfplumber==0.11.4
+python-docx==1.1.2
+pymupdf==1.25.0
+
+# Web Scraping / Browser Automation
+playwright==1.49.0
+beautifulsoup4==4.12.3
+httpx==0.28.0
+lxml==5.3.0
+
+
+# Scheduler
+apscheduler==3.10.4
+
+# Data Processing
+pydantic==2.10.0
+pydantic-settings==2.6.1
+pandas==2.2.3
+
+# Auth & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Email
+aiosmtplib==3.0.2
+
+# Utilities
+python-dotenv==1.0.1
+tenacity==9.0.0
+loguru==0.7.2
+rich==13.9.4
+celery==5.4.0
+redis==5.2.0
