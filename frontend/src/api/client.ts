@@ -67,3 +67,9 @@ export const statsApi = {
   history: () => api.get('/stats/history'),
   health: () => api.get('/health'),
 }
+
+export const followupApi = {
+  list: (appId: number) => api.get(`/applications/${appId}/followups`),
+  send: (followupId: number) => api.post(`/followups/${followupId}/send`),
+  skip: (followupId: number) => api.post(`/followups/${followupId}/skip`),
+}

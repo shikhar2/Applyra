@@ -24,7 +24,7 @@ _run_state: dict = {
 from backend.db.database import get_db
 from backend.models.models import (
     Resume, Job, Application, JobProfile, DailyStats,
-    ApplicationStatus,
+    ApplicationStatus, FollowUp,
 )
 from backend.core.config import settings
 from backend.core.resume_parser import extract_text, parse_resume_with_ai
@@ -63,6 +63,7 @@ class RunSearchRequest(BaseModel):
     sources: List[str] = ["linkedin", "indeed", "dice", "wellfound"]
     dry_run: bool = True
     days: int = 7
+    batch_size: int = 20
 
 class MatchTestRequest(BaseModel):
     resume_id: int
@@ -498,7 +499,7 @@ async def _run_search_task(body: RunSearchRequest):
                 return
 
             matcher = JobMatcher(ai_client, settings.AI_PROVIDER)
-            engine = ApplicationEngine(db, matcher, ai_client)
+            engine = ApplicationEngine(db, matcher, ai_client, log_fn=_log)
 
             cfg = {"delay": settings.SCRAPER_DELAY_SECONDS}
             browser_sem = asyncio.Semaphore(settings.MAX_BROWSER_SCRAPERS)
@@ -532,13 +533,9 @@ async def _run_search_task(body: RunSearchRequest):
             scrape_results = await asyncio.gather(*scrape_tasks)
             all_scraped = [job for batch in scrape_results for job in batch]
 
-            _log(f"Total scraped: {len(all_scraped)} jobs across all sources")
-            new_count = await engine.ingest_jobs(all_scraped)
-            _log(f"New jobs saved to DB: {new_count} (duplicates skipped)")
-
-            _log("Scoring jobs with AI — this may take 30-60 seconds...")
-            queued = await engine.queue_applications(profile, resume)
-            _log(f"Jobs scored. Queued for application: {queued}")
+            batch_size = max(1, body.batch_size or settings.SEARCH_BATCH_SIZE)
+            total_batches = max(1, (len(all_scraped) + batch_size - 1) // batch_size)
+            _log(f"Total scraped: {len(all_scraped)} jobs — processing in {total_batches} batches of {batch_size}")
 
             dry = not (not body.dry_run and settings.AUTO_APPLY_ENABLED)
             if dry:
@@ -546,11 +543,27 @@ async def _run_search_task(body: RunSearchRequest):
             else:
                 _log("LIVE mode — submitting applications now!")
 
-            result = await engine.process_pending_applications(resume, dry_run=dry)
-            sent = result.get('sent', 0)
-            failed = result.get('failed', 0)
+            new_count = queued = sent = failed = 0
+            for batch_idx in range(0, len(all_scraped), batch_size):
+                batch = all_scraped[batch_idx:batch_idx + batch_size]
+                bn = batch_idx // batch_size + 1
+                _log(f"Batch {bn}/{total_batches}: ingesting {len(batch)} jobs...")
+                b_new = await engine.ingest_jobs(batch)
+                new_count += b_new
 
-            _log(f"Done! Scraped: {len(all_scraped)} | New: {new_count} | Queued: {queued} | Applied: {sent} | Failed: {failed}")
+                _log(f"Batch {bn}/{total_batches}: scoring {b_new} new jobs with AI...")
+                b_queued = await engine.queue_applications(profile, resume)
+                queued = b_queued  # cumulative pending count
+
+                _log(f"Batch {bn}/{total_batches}: applying to pending jobs...")
+                result = await engine.process_pending_applications(resume, dry_run=dry)
+                b_sent = result.get('sent', 0)
+                b_failed = result.get('failed', 0)
+                sent += b_sent
+                failed += b_failed
+                _log(f"Batch {bn}/{total_batches} done — new: {b_new} | applied: {b_sent} | failed: {b_failed}")
+
+            _log(f"All done! Scraped: {len(all_scraped)} | New: {new_count} | Applied: {sent} | Failed: {failed}")
             _run_state["stats"] = {
                 "scraped": len(all_scraped),
                 "new": new_count,
@@ -893,6 +906,102 @@ async def generate_followup(body: FollowUpRequest, db: AsyncSession = Depends(ge
     )
     schedule = gen.get_followup_schedule(applied_str)
     return {"email": email, "schedule": schedule}
+
+
+# ── Follow-Up Tracking (scheduler-driven) ───────────────────────────
+
+@router.get("/applications/{app_id}/followups", tags=["followups"])
+async def list_followups(app_id: int, db: AsyncSession = Depends(get_db)):
+    """Return all scheduled follow-ups for an application."""
+    result = await db.execute(
+        select(FollowUp)
+        .where(FollowUp.application_id == app_id)
+        .order_by(FollowUp.scheduled_for)
+    )
+    fus = result.scalars().all()
+    return [
+        {
+            "id": fu.id,
+            "followup_type": fu.followup_type,
+            "label": fu.label,
+            "scheduled_for": fu.scheduled_for,
+            "sent_at": fu.sent_at,
+            "subject": fu.subject,
+            "body": fu.body,
+            "status": fu.status,
+            "error_message": fu.error_message,
+        }
+        for fu in fus
+    ]
+
+
+@router.post("/followups/{followup_id}/send", tags=["followups"])
+async def send_followup_now(followup_id: int, db: AsyncSession = Depends(get_db)):
+    """Manually trigger a follow-up — generates email and sends (or marks sent if no SMTP)."""
+    from sqlalchemy.orm import selectinload
+    from backend.ai.followup import FollowUpGenerator
+    from backend.core.email_service import send_email
+
+    result = await db.execute(
+        select(FollowUp).where(FollowUp.id == followup_id)
+    )
+    fu = result.scalar_one_or_none()
+    if not fu:
+        raise HTTPException(404, "Follow-up not found")
+    if fu.status == "sent":
+        raise HTTPException(400, "Follow-up already sent")
+
+    app_result = await db.execute(
+        select(Application)
+        .where(Application.id == fu.application_id)
+        .options(selectinload(Application.job), selectinload(Application.resume))
+    )
+    app = app_result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(404, "Application not found")
+
+    ai_client = get_ai_client()
+    if not ai_client:
+        raise HTTPException(503, "No AI provider configured")
+
+    gen = FollowUpGenerator(ai_client, settings.AI_PROVIDER)
+    candidate_name = (app.resume.parsed_data or {}).get("name", "") if app.resume else ""
+
+    email = await gen.generate_followup(
+        candidate_name=candidate_name,
+        job_title=app.job.title,
+        company=app.job.company,
+        applied_date=app.applied_at.isoformat() if app.applied_at else "",
+        cover_letter=app.cover_letter or "",
+        followup_type=fu.followup_type,
+    )
+    fu.subject = email["subject"]
+    fu.body = email["body"]
+
+    notify_to = settings.NOTIFY_EMAIL
+    if notify_to and email["body"]:
+        sent = await send_email(notify_to, email["subject"], email["body"])
+        fu.status = "sent" if sent else "failed"
+        fu.sent_at = datetime.utcnow() if sent else None
+        fu.error_message = None if sent else "SMTP send failed"
+    else:
+        fu.status = "sent"
+        fu.sent_at = datetime.utcnow()
+
+    await db.commit()
+    return {"message": f"Follow-up {fu.status}", "subject": fu.subject, "body": fu.body}
+
+
+@router.post("/followups/{followup_id}/skip", tags=["followups"])
+async def skip_followup(followup_id: int, db: AsyncSession = Depends(get_db)):
+    """Skip a pending follow-up."""
+    result = await db.execute(select(FollowUp).where(FollowUp.id == followup_id))
+    fu = result.scalar_one_or_none()
+    if not fu:
+        raise HTTPException(404, "Follow-up not found")
+    fu.status = "skipped"
+    await db.commit()
+    return {"message": "Follow-up skipped"}
 
 
 # ── Cover Letter A/B Analytics ───────────────────────────────────────

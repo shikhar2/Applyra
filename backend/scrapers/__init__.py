@@ -15,10 +15,10 @@ SCRAPERS = {
 }
 
 # Scrapers that use Playwright (need browser launch)
-BROWSER_SCRAPERS = {"linkedin", "indeed"}
+BROWSER_SCRAPERS = {"linkedin", "indeed", "glassdoor", "naukri", "wellfound"}
 
 # Scrapers that use plain HTTP (faster, no browser needed)
-HTTP_SCRAPERS = {"glassdoor", "naukri", "dice", "wellfound"}
+HTTP_SCRAPERS = {"dice"}
 
 __all__ = [
     "LinkedInScraper", "IndeedScraper", "GlassdoorScraper",

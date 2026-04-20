@@ -1,162 +1,141 @@
 """
-Wellfound (formerly AngelList Talent) scraper.
-Top job board for startup jobs — strong for AI/ML and full stack roles.
-Uses their GraphQL API (same one the site uses).
+Wellfound (AngelList Talent) scraper — Playwright-based (GraphQL endpoint now requires auth).
 """
 import asyncio
-import hashlib
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
-import httpx
 
 from .base import BaseScraper, ScrapedJob
 
-# Wellfound GraphQL endpoint
-GRAPHQL_URL = "https://wellfound.com/graphql"
-
-# GraphQL query to search startup jobs
-JOBS_QUERY = """
-query JobSearchQuery($query: String, $locationSlug: String, $jobTypes: [String], $page: Int, $perPage: Int) {
-  talent {
-    seoLandingPageJobSearchResults(
-      query: $query
-      locationSlug: $locationSlug
-      jobTypes: $jobTypes
-      page: $page
-      perPage: $perPage
-    ) {
-      total
-      jobListings {
-        id
-        title
-        slug
-        remote
-        description
-        primaryRoleTitle
-        jobType
-        salary
-        equityMin
-        equityMax
-        currency
-        createdAt
-        url: liveJobUrl
-        startup {
-          id
-          name
-          slug
-          locationTagList
-          markets { displayName }
-          fundingAmount
-          teamSize
-          isHiring
-        }
-      }
-    }
-  }
-}
-"""
-
 
 class WellfoundScraper(BaseScraper):
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Referer": "https://wellfound.com/jobs",
-        "Origin": "https://wellfound.com",
-    }
+    BASE_URL = "https://wellfound.com"
+
+    def __init__(self, config: dict = None):
+        super().__init__(config)
+        self.browser = None
+        self.page = None
+
+    async def __aenter__(self):
+        from playwright.async_api import async_playwright
+        self._pw_ctx = async_playwright()
+        pw = await self._pw_ctx.__aenter__()
+        self.browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        self.context = await self.browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 900},
+        )
+        self.page = await self.context.new_page()
+        return self
+
+    async def __aexit__(self, *args):
+        if self.browser:
+            await self.browser.close()
 
     async def search_jobs(self, query: str, location: str = "Remote",
-                          max_results: int = 50) -> List[ScrapedJob]:
+                          max_results: int = 50, days: int = 7) -> List[ScrapedJob]:
+        if not self.page:
+            async with self:
+                return await self._do_search(query, location, max_results)
+        return await self._do_search(query, location, max_results)
+
+    async def _do_search(self, query: str, location: str, max_results: int) -> List[ScrapedJob]:
         jobs = []
-        page = 1
-        per_page = 20
+        try:
+            is_remote = location.lower() in ("remote", "anywhere", "")
+            q = query.replace(" ", "+")
+            url = f"{self.BASE_URL}/jobs?q={q}"
+            if is_remote:
+                url += "&remote=true"
+            else:
+                url += f"&location={location.replace(' ', '+')}"
 
-        # Map location to Wellfound slug
-        loc_slug = self._location_slug(location)
+            await self.page.goto(url, wait_until="domcontentloaded", timeout=35000)
+            await asyncio.sleep(self.config.get("delay", 3))
 
-        async with httpx.AsyncClient(headers=self.HEADERS, timeout=25) as client:
-            while len(jobs) < max_results:
-                payload = {
-                    "query": JOBS_QUERY,
-                    "variables": {
-                        "query": query,
-                        "locationSlug": loc_slug,
-                        "jobTypes": ["full_time"],
-                        "page": page,
-                        "perPage": per_page,
-                    }
-                }
-                try:
-                    await self.rate_limiter.wait()
-                    resp = await client.post(GRAPHQL_URL, json=payload)
-                    if resp.status_code != 200:
-                        self.rate_limiter.failure(resp.status_code)
-                        logger.warning(f"Wellfound returned {resp.status_code}")
-                        break
-                    self.rate_limiter.success()
+            # Scroll to load more results
+            for _ in range(2):
+                await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await asyncio.sleep(1.5)
 
-                    data = resp.json()
-                    result = (data.get("data") or {}).get("talent", {}).get(
-                        "seoLandingPageJobSearchResults", {}
-                    )
-                    items = result.get("jobListings", [])
-                    if not items:
-                        break
+            raw = await self.page.evaluate("""() => {
+                // Try multiple possible card selectors
+                const cards = document.querySelectorAll(
+                    '[data-test="StartupResult"], ' +
+                    '[class*="styles_component"], ' +
+                    'div[class*="JobListing"], ' +
+                    'div[class*="listing"]'
+                );
 
-                    for item in items[:max_results - len(jobs)]:
-                        job = self._parse_listing(item)
-                        if job:
-                            jobs.append(job)
+                return Array.from(cards).map(card => {
+                    const titleEl = card.querySelector(
+                        '[class*="title"], [class*="role"], h2, h3, a[href*="/jobs/"]'
+                    );
+                    const companyEl = card.querySelector(
+                        '[class*="company"], [class*="startup"], [class*="name"]'
+                    );
+                    const locEl = card.querySelector('[class*="location"], [class*="loc"]');
+                    const linkEl = card.querySelector('a[href*="/jobs/"], a[href*="/l/"]');
+                    const salaryEl = card.querySelector('[class*="salary"], [class*="comp"]');
+                    const remoteEl = card.querySelector('[class*="remote"]');
 
-                    total = result.get("total", 0)
-                    if len(jobs) >= min(max_results, total) or len(items) < per_page:
-                        break
-                    page += 1
-                    await asyncio.sleep(self.config.get("delay", 1.5))
+                    return {
+                        title: titleEl ? titleEl.innerText.trim() : '',
+                        company: companyEl ? companyEl.innerText.trim() : '',
+                        location: locEl ? locEl.innerText.trim() : '',
+                        url: linkEl ? (linkEl.href.startsWith('http') ? linkEl.href : 'https://wellfound.com' + linkEl.getAttribute('href')) : '',
+                        salary: salaryEl ? salaryEl.innerText.trim() : '',
+                        is_remote: !!remoteEl || (locEl && locEl.innerText.toLowerCase().includes('remote')),
+                    };
+                }).filter(j => j.title && j.company);
+            }""")
 
-                except Exception as e:
-                    logger.error(f"Wellfound search error: {e}")
+            seen = set()
+            for item in (raw or []):
+                key = f"{item.get('title', '')}-{item.get('company', '')}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                job = self._parse_raw(item, is_remote)
+                if job:
+                    jobs.append(job)
+                if len(jobs) >= max_results:
                     break
+
+        except Exception as e:
+            logger.error(f"Wellfound search error: {e}")
 
         logger.info(f"Wellfound scraped {len(jobs)} jobs for '{query}'")
         return jobs
 
-    def _parse_listing(self, item: dict) -> Optional[ScrapedJob]:
+    def _parse_raw(self, item: dict, default_remote: bool = False) -> Optional[ScrapedJob]:
         try:
-            job_id = str(item.get("id", ""))
             title = item.get("title", "").strip()
-            startup = item.get("startup") or {}
-            company = startup.get("name", "").strip()
-            locations = startup.get("locationTagList") or []
-            location = ", ".join(locations[:2]) if locations else ""
-            is_remote = item.get("remote", False) or "remote" in location.lower()
+            company = item.get("company", "").strip()
+            if not title or not company:
+                return None
 
-            url = item.get("url") or f"https://wellfound.com/jobs/{item.get('slug', job_id)}"
+            url = item.get("url", "").strip() or f"{self.BASE_URL}/jobs"
+            location = item.get("location", "").strip()
+            is_remote = item.get("is_remote", default_remote) or "remote" in location.lower()
 
-            # Salary
-            sal_raw = item.get("salary", "")
-            sal_min, sal_max = self._parse_salary(sal_raw)
+            sal_str = item.get("salary", "")
+            sal_min, sal_max = self._parse_salary(sal_str)
 
-            posted_str = item.get("createdAt", "")
-            posted_at = None
-            if posted_str:
-                try:
-                    posted_at = datetime.fromisoformat(posted_str.replace("Z", "+00:00"))
-                except Exception:
-                    pass
-
-            markets = [m.get("displayName", "") for m in (startup.get("markets") or [])]
+            ext_id = f"wf_{abs(hash(title+company))}"
 
             return ScrapedJob(
-                external_id=f"wellfound_{job_id}",
+                external_id=ext_id,
                 title=title,
                 company=company,
                 location=location or ("Remote" if is_remote else "US"),
-                description=item.get("description", ""),
+                description="",
                 url=url,
                 apply_url=url,
                 source="wellfound",
@@ -164,56 +143,21 @@ class WellfoundScraper(BaseScraper):
                 salary_min=sal_min,
                 salary_max=sal_max,
                 job_type="full-time",
-                posted_at=posted_at,
-                extra_data={
-                    "markets": markets,
-                    "team_size": startup.get("teamSize"),
-                    "equity_min": item.get("equityMin"),
-                    "equity_max": item.get("equityMax"),
-                },
             )
         except Exception as e:
             logger.debug(f"Wellfound parse error: {e}")
             return None
 
-    async def get_job_details(self, job_url: str) -> Dict[str, Any]:
-        return {}  # Description already included in listing
-
-    def _location_slug(self, location: str) -> str:
-        """Map common location names to Wellfound slugs."""
-        mapping = {
-            "remote": "remote",
-            "anywhere": "remote",
-            "san francisco": "san-francisco-bay-area",
-            "sf": "san-francisco-bay-area",
-            "new york": "new-york",
-            "nyc": "new-york",
-            "los angeles": "los-angeles",
-            "seattle": "seattle",
-            "austin": "austin",
-            "boston": "boston",
-            "chicago": "chicago",
-            "denver": "denver",
-            "india": "india",
-            "bangalore": "bengaluru",
-            "bengaluru": "bengaluru",
-            "mumbai": "mumbai",
-            "london": "london",
-            "berlin": "berlin",
-            "toronto": "toronto",
-        }
-        return mapping.get(location.lower(), "remote")
-
-    def _parse_salary(self, salary: any) -> tuple:
-        if not salary:
+    def _parse_salary(self, text: str):
+        if not text:
             return None, None
-        text = str(salary)
         nums = re.findall(r"[\d,]+", text)
-        nums = [int(n.replace(",", "")) for n in nums]
-        if not nums:
+        vals = [int(n.replace(",", "")) for n in nums if int(n.replace(",", "")) > 0]
+        if not vals:
             return None, None
         if "k" in text.lower():
-            nums = [n * 1000 if n < 1000 else n for n in nums]
-        if len(nums) >= 2:
-            return nums[0], nums[1]
-        return nums[0], nums[0]
+            vals = [v * 1000 if v < 1000 else v for v in vals]
+        return (vals[0], vals[-1]) if len(vals) >= 2 else (vals[0], vals[0])
+
+    async def get_job_details(self, job_url: str) -> Dict[str, Any]:
+        return {}

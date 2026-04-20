@@ -121,6 +121,7 @@ class Application(Base):
 
     job = relationship("Job", back_populates="applications")
     resume = relationship("Resume", back_populates="applications")
+    follow_ups = relationship("FollowUp", back_populates="application", cascade="all, delete-orphan")
 
 
 class JobSearch(Base):
@@ -148,3 +149,21 @@ class DailyStats(Base):
     applications_sent = Column(Integer, default=0)
     applications_failed = Column(Integer, default=0)
     applications_skipped = Column(Integer, default=0)
+
+
+class FollowUp(Base):
+    __tablename__ = "follow_ups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    application_id = Column(Integer, ForeignKey("applications.id"), nullable=False)
+    followup_type = Column(String(50), nullable=False)  # thank_you | gentle_check | final_followup
+    label = Column(String(100))                         # "Thank you (Day 3)"
+    scheduled_for = Column(DateTime, nullable=False)
+    sent_at = Column(DateTime, nullable=True)
+    subject = Column(String(500), nullable=True)
+    body = Column(Text, nullable=True)
+    status = Column(String(50), default="pending")      # pending | sent | skipped | failed
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+
+    application = relationship("Application", back_populates="follow_ups")

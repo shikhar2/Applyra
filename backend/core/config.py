@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Concurrency
     MAX_AI_CONCURRENCY: int = 8       # parallel AI scoring/generation calls
     MAX_BROWSER_SCRAPERS: int = 2     # concurrent browser scraper instances
+    SEARCH_BATCH_SIZE: int = 20       # jobs per batch (ingest → score → apply cycle)
 
     class Config:
         env_file = ".env"

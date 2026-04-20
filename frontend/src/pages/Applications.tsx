@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { applicationApi } from '../api/client'
+import { applicationApi, followupApi } from '../api/client'
 import api from '../api/client'
 import toast from 'react-hot-toast'
-import { ExternalLink, CheckCircle, Clock, XCircle, TrendingUp, FileText, Layers, ChevronRight, Star, RotateCcw, Download, Sparkles } from 'lucide-react'
+import { ExternalLink, CheckCircle, Clock, XCircle, TrendingUp, FileText, Layers, ChevronRight, Star, RotateCcw, Download, Sparkles, Mail, Send, SkipForward } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: any }> = {
@@ -41,6 +41,127 @@ function MatchScoreCircle({ score }: { score: number }) {
       style={{ background: bg, border: `2px solid ${border}` }}
     >
       <span className="text-xs font-bold leading-none" style={{ color }}>{pct}%</span>
+    </div>
+  )
+}
+
+const FOLLOWUP_TYPE_LABEL: Record<string, string> = {
+  thank_you: 'Thank You',
+  gentle_check: 'Check-In',
+  final_followup: 'Final Follow-Up',
+}
+
+const FOLLOWUP_STATUS_COLOR: Record<string, string> = {
+  pending: '#fbbf24',
+  sent: '#34d399',
+  skipped: 'rgba(255,255,255,0.3)',
+  failed: '#f87171',
+}
+
+function FollowUpTimeline({ appId, appStatus }: { appId: number; appStatus: string }) {
+  const [followups, setFollowups] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [acting, setActing] = useState<number | null>(null)
+
+  useEffect(() => {
+    followupApi.list(appId)
+      .then(r => setFollowups(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [appId])
+
+  async function handleSend(fuId: number) {
+    setActing(fuId)
+    try {
+      const r = await followupApi.send(fuId)
+      toast.success('Follow-up sent!')
+      setFollowups(prev => prev.map(f => f.id === fuId ? { ...f, status: 'sent', subject: r.data.subject, body: r.data.body } : f))
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function handleSkip(fuId: number) {
+    setActing(fuId)
+    try {
+      await followupApi.skip(fuId)
+      setFollowups(prev => prev.map(f => f.id === fuId ? { ...f, status: 'skipped' } : f))
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setActing(null)
+    }
+  }
+
+  if (loading) return (
+    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Loading follow-ups…</p>
+  )
+
+  if (followups.length === 0) {
+    if (appStatus !== 'applied') return null
+    return (
+      <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+        Follow-ups will be scheduled once the application is processed.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {followups.map((fu) => {
+        const color = FOLLOWUP_STATUS_COLOR[fu.status] || '#fbbf24'
+        const isDue = fu.status === 'pending' && new Date(fu.scheduled_for) <= new Date()
+        return (
+          <div key={fu.id} className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.25)', border: `1px solid rgba(255,255,255,0.06)` }}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                <span className="text-xs font-semibold text-white">{FOLLOWUP_TYPE_LABEL[fu.followup_type] || fu.label}</span>
+                {isDue && (
+                  <span className="text-xs font-bold px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>Due</span>
+                )}
+              </div>
+              <span className="text-xs capitalize" style={{ color }}>{fu.status}</span>
+            </div>
+            <p className="text-xs mb-2" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              {fu.status === 'sent' && fu.sent_at
+                ? `Sent ${new Date(fu.sent_at).toLocaleDateString()}`
+                : `Scheduled ${new Date(fu.scheduled_for).toLocaleDateString()}`}
+            </p>
+            {fu.subject && (
+              <p className="text-xs mb-2 truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>{fu.subject}</p>
+            )}
+            {fu.status === 'pending' && (
+              <div className="flex gap-1.5">
+                <motion.button
+                  onClick={() => handleSend(fu.id)}
+                  disabled={acting === fu.id}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium"
+                  style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.25)', color: '#34d399' }}
+                >
+                  <Send className="w-3 h-3" />
+                  {acting === fu.id ? 'Sending…' : 'Send Now'}
+                </motion.button>
+                <motion.button
+                  onClick={() => handleSkip(fu.id)}
+                  disabled={acting === fu.id}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}
+                >
+                  <SkipForward className="w-3 h-3" />
+                  Skip
+                </motion.button>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -388,6 +509,26 @@ export default function ApplicationsPage() {
                   >
                     {selected.match_explanation || '—'}
                   </p>
+                </div>
+              )}
+
+              {/* Follow-up timeline — only for applied+ */}
+              {['applied', 'interview', 'rejected', 'offer'].includes(selected.status) && (
+                <div className="mt-4">
+                  <div style={{ background: 'rgba(255,255,255,0.05)', height: 1 }} className="mb-4" />
+                  <p
+                    className="text-xs font-medium mb-3 flex items-center gap-1.5"
+                    style={{ color: 'rgba(255,255,255,0.4)' }}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-md flex items-center justify-center"
+                      style={{ background: 'rgba(52,211,153,0.15)' }}
+                    >
+                      <Mail className="w-3 h-3" style={{ color: '#34d399' }} />
+                    </div>
+                    Follow-Up Schedule
+                  </p>
+                  <FollowUpTimeline appId={selected.id} appStatus={selected.status} />
                 </div>
               )}
             </div>

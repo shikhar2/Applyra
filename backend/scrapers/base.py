@@ -110,10 +110,10 @@ class BaseScraper(ABC):
         await self.rate_limiter.wait()
         try:
             resp = await client.get(url, **kwargs)
-            if resp.status_code in (429, 403, 503):
+            if resp.status_code >= 400:
                 self.rate_limiter.failure(resp.status_code)
-                # Wait the new (longer) delay before returning the failed response
-                await asyncio.sleep(self.rate_limiter._current_delay)
+                if resp.status_code in (429, 503):
+                    await asyncio.sleep(self.rate_limiter._current_delay)
             else:
                 self.rate_limiter.success()
             return resp

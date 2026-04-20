@@ -32,6 +32,11 @@ class IndeedScraper(BaseScraper):
                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
         self.page = await self.context.new_page()
+        try:
+            from playwright_stealth import Stealth
+            await Stealth().apply_stealth_async(self.page)
+        except Exception:
+            pass
         return self
 
     async def __aexit__(self, *args):
@@ -40,7 +45,7 @@ class IndeedScraper(BaseScraper):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=3, max=15))
     async def search_jobs(self, query: str, location: str = "Remote",
-                          max_results: int = 50) -> List[ScrapedJob]:
+                          max_results: int = 50, days: int = 7) -> List[ScrapedJob]:
         jobs = []
         start = 0
 

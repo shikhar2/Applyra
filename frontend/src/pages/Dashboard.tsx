@@ -85,8 +85,7 @@ export default function Dashboard() {
   const [selectedResume, setSelectedResume] = useState<number | null>(null)
   const [selectedProfile, setSelectedProfile] = useState<number | null>(null)
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set(['linkedin', 'indeed', 'dice', 'wellfound']))
-  const [dryRun, setDryRun] = useState(true)
-  
+  const [batchSize, setBatchSize] = useState(20)
   const logEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { loadData(); const t = setInterval(loadData, 30000); return () => clearInterval(t) }, [])
@@ -110,8 +109,8 @@ export default function Dashboard() {
     if (selectedSources.size === 0) { toast.error('Select at least one job source'); return }
     setRunning(true); setLogs([]); setRunStatsGlobal(null)
     try {
-      await automationApi.runSearch({ profile_id: selectedProfile, resume_id: selectedResume, sources: Array.from(selectedSources), dry_run: dryRun })
-      toast.success(dryRun ? 'Search started — dry run mode' : 'Search started — LIVE mode!')
+      await automationApi.runSearch({ profile_id: selectedProfile, resume_id: selectedResume, sources: Array.from(selectedSources), dry_run: false, batch_size: batchSize })
+      toast.success('Search started — LIVE mode!')
     } catch (e: any) { toast.error(e.message); setRunning(false) }
   }
 
@@ -174,17 +173,6 @@ export default function Dashboard() {
                 <Play className="w-5 h-5" />
               </div>
               <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Execution Engine</h2>
-            </div>
-            <div className="flex bg-slate-100 dark:bg-slate-900 rounded-xl p-1">
-              {[{ v: true, l: 'Dry Run' }, { v: false, l: 'Live' }].map(o => (
-                <button
-                  key={String(o.v)}
-                  onClick={() => setDryRun(o.v)}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${dryRun === o.v ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-500' : 'text-slate-400'}`}
-                >
-                  {o.l}
-                </button>
-              ))}
             </div>
           </div>
 
@@ -253,9 +241,19 @@ export default function Dashboard() {
               {running ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
               <span className="text-lg font-bold">{running ? 'AI Engine Running...' : 'Initiate Search'}</span>
             </button>
-            <div className="text-sm font-medium opacity-60 flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${dryRun ? 'bg-amber-400' : 'bg-red-400'} animate-pulse`} />
-              {dryRun ? 'Safety mode: No real logs will be filed.' : 'Live mode: Proceed with caution.'}
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold uppercase tracking-widest opacity-40">Batch</label>
+              <div className="flex bg-slate-100 dark:bg-slate-900 rounded-xl p-1">
+                {[10, 20, 50].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setBatchSize(n)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${batchSize === n ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-500' : 'text-slate-400'}`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </motion.div>

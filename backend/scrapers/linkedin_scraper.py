@@ -47,10 +47,13 @@ class LinkedInScraper(BaseScraper):
             viewport={"width": 1280, "height": 800},
         )
         self.page = await self.context.new_page()
-        # Hide automation detection
-        await self.page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        """)
+        try:
+            from playwright_stealth import Stealth
+            await Stealth().apply_stealth_async(self.page)
+        except Exception:
+            await self.page.add_init_script(
+                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+            )
 
     async def _close_browser(self):
         if self.browser:

@@ -21,6 +21,7 @@ pymupdf==1.25.0
 
 # Web Scraping / Browser Automation
 playwright==1.49.0
+playwright-stealth==2.0.3
 beautifulsoup4==4.12.3
 httpx==0.28.0
 lxml==5.3.0

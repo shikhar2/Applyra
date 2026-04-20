@@ -25,7 +25,7 @@ class DiceScraper(BaseScraper):
     }
 
     async def search_jobs(self, query: str, location: str = "Remote",
-                          max_results: int = 50) -> List[ScrapedJob]:
+                          max_results: int = 50, days: int = 7) -> List[ScrapedJob]:
         jobs = []
         page = 1
         page_size = 20

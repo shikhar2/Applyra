@@ -39,10 +39,11 @@ def _dedup_key(company: str, title: str) -> str:
 
 
 class ApplicationEngine:
-    def __init__(self, db: AsyncSession, matcher: JobMatcher, ai_client):
+    def __init__(self, db: AsyncSession, matcher: JobMatcher, ai_client, log_fn=None):
         self.db = db
         self.matcher = matcher
         self.ai_client = ai_client
+        self._log = log_fn or (lambda msg, level="info": None)
 
     # ── Job ingestion ──────────────────────────────────────────────────────
 
@@ -87,17 +88,22 @@ class ApplicationEngine:
         jobs = result.scalars().all()
         
         ai_sem = asyncio.Semaphore(settings.MAX_AI_CONCURRENCY)
+        scored = 0
+        total = len(jobs)
 
         async def _score_one(job):
+            nonlocal scored
             if not self._profile_filter(job, profile):
                 await self._create_application(job, resume, 0.0, {}, ApplicationStatus.SKIPPED)
+                scored += 1
                 return
             job_dict = {"title": job.title, "company": job.company, "description": job.description or "", "location": job.location}
             async with ai_sem:
                 score, analysis = await self.matcher.score_match(resume_data, job_dict)
+            scored += 1
+            verdict = "✓" if score >= settings.MIN_MATCH_SCORE and analysis.get("apply_recommendation", False) else "✗"
+            self._log(f"  [{scored}/{total}] {verdict} {job.title} @ {job.company} — {score:.0%}")
             if score >= settings.MIN_MATCH_SCORE and analysis.get("apply_recommendation", False):
-                # High confidence (≥0.85) → deep analysis + HITL review queue
-                # Normal confidence → straight to pending
                 if score >= settings.HITL_REVIEW_THRESHOLD:
                     async with ai_sem:
                         _, deep = await self.matcher.deep_score_match(resume_data, job_dict)
@@ -108,7 +114,6 @@ class ApplicationEngine:
             else:
                 await self._create_application(job, resume, score, analysis, ApplicationStatus.SKIPPED)
 
-        # Batch process AI scoring
         await asyncio.gather(*[_score_one(j) for j in jobs])
         await self.db.commit()
 

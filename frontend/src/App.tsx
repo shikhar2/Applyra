@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
@@ -35,11 +35,16 @@ export default function App() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
+  const isRunning = useStore(state => state.isRunning)
+  const pollInFlight = useRef(false)
+
   // Global background task polling
   useEffect(() => {
     const poll = async () => {
+      if (pollInFlight.current) return
+      pollInFlight.current = true
       try {
-        const r = await api.get('/run/status')
+        const r = await api.get('/run/status', { timeout: 5000 })
         setIsRunning(r.data.running)
         setLogs(r.data.logs || [])
         if (r.data.stats && Object.keys(r.data.stats).length > 0) {
@@ -47,13 +52,15 @@ export default function App() {
         }
       } catch (e) {
         console.error("Failed to fetch background status", e)
+      } finally {
+        pollInFlight.current = false
       }
     }
 
-    poll() // Initial check
-    const interval = setInterval(poll, 3000)
+    poll()
+    const interval = setInterval(poll, isRunning ? 1000 : 3000)
     return () => clearInterval(interval)
-  }, [setIsRunning, setLogs, setRunStats])
+  }, [setIsRunning, setLogs, setRunStats, isRunning])
 
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light')
 
